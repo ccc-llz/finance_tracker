@@ -1,0 +1,61 @@
+services:
+  5619-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: 5619-backend-dev
+    ports:
+      - "5619:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/finance_tracker
+      SPRING_DATASOURCE_USERNAME: elec5619p5g1
+      SPRING_DATASOURCE_PASSWORD: financetrackeristhebestprojectforelec5619
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_SECRET: financetrackerTestJWTSecret2025!123456
+      FILE_UPLOAD_PATH: /var/www/uploads/avatars/
+      FILE_VISIT_PATH: /resources/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: 5619-backend-mysql
+    environment:
+      MYSQL_DATABASE: finance_tracker
+      MYSQL_USER: elec5619p5g1
+      MYSQL_PASSWORD: financetrackeristhebestprojectforelec5619
+      MYSQL_ROOT_PASSWORD: financetrackeristhebestprojectforelec5619
+    ports:
+      - "${MYSQL_PORT:-5621}:3306"
+    volumes:
+      - 5619_mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "elec5619p5g1", "-pfinancetrackeristhebestprojectforelec5619"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: 5619-backend-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - 5619_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  5619_mysql_data:
+  5619_redis_data:
