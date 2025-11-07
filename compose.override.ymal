@@ -1,0 +1,25 @@
+services:
+  frontend:
+    build:
+      target: development
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+      - NODE_ENV=development
+    
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      LOGGING_LEVEL_COM_ELEC5619P5G1: DEBUG
+      SPRING_JPA_SHOW_SQL: true
+    volumes:
+      - ./backend/logs:/app/logs
+
+  postgres:
+    ports:
+      - "5432:5432"
+    
+  redis:
+    ports:
+      - "6379:6379"

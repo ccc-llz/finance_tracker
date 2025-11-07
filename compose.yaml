@@ -1,0 +1,187 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: finance-tracker-backend
+    ports:
+      - "${SERVER_PORT:-5619}:8080"
+    volumes:
+      - upload-data:/var/www/5619temp/uploads
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-finance_tracker}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-elec5619p5g1}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-financetrackeristhebestprojectforelec5619}
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: com.mysql.cj.jdbc.Driver
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: financetrackerTestJWTSecret2025!123456
+      CORS_DOMAINS: ${CORS_DOMAINS}
+      FILE_UPLOAD_PATH: /var/www/5619temp/uploads/
+      FILE_VISIT_PATH: /resources/
+      TZ: Australia/Sydney
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    develop:
+      watch:
+        - action: rebuild
+          path: ./backend/src
+        - action: rebuild  
+          path: ./backend/pom.xml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: ${FRONTEND_TARGET:-development}
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:5619}
+        - VITE_MODEL_URL=${VITE_MODEL_URL:-http://localhost:5623}
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:5619}
+      - VITE_MODEL_URL=${VITE_MODEL_URL:-http://localhost:5623}
+    container_name: finance-tracker-frontend
+    ports:
+      - "${FRONTEND_PORT:-5620}:${FRONTEND_CONTAINER_PORT:-5173}"
+    depends_on:
+      backend:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src
+        - action: rebuild
+          path: ./frontend/package.json
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: finance-tracker-mysql
+    environment:
+      MYSQL_DATABASE: finance_tracker
+      MYSQL_USER: elec5619p5g1
+      MYSQL_PASSWORD: financetrackeristhebestprojectforelec5619
+      MYSQL_ROOT_PASSWORD: financetrackeristhebestprojectforelec5619
+      MYSQL_PORT: 5621
+    ports:
+      - "${MYSQL_PORT:-5621}:3306"
+    volumes:
+      - 5619_mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "elec5619p5g1", "-pfinancetrackeristhebestprojectforelec5619"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: finance-tracker-redis
+    command: redis-server ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}
+    ports:
+      - "${REDIS_PORT:-5622}:6379"
+    volumes:
+      - 5619_redis_data:/data
+    healthcheck:
+      test: 
+        - CMD
+        - redis-cli
+        - ${REDIS_PASSWORD:+-a}
+        - ${REDIS_PASSWORD:-}
+        - ping
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  model:
+    build: 
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: finance-tracker-ai
+    ports:
+      - "${AI_PORT:-5623}:8000"
+    volumes:
+      - ./app:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONUNBUFFERED=1
+      - CORS_DOMAINS=${CORS_DOMAINS}
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${MYSQL_USER:-elec5619p5g1}
+      - DB_PASSWORD=${MYSQL_PASSWORD:-financetrackeristhebestprojectforelec5619}
+      - DB_NAME=${MYSQL_DATABASE:-finance_tracker}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seed:
+    image: curlimages/curl:latest
+    container_name: finance-tracker-seed
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      - SEED_ENABLED=${APP_SEED_ENABLED:-true}
+    command: >
+      sh -c "
+        if [ \"$$SEED_ENABLED\" = \"true\" ]; then
+          echo 'Waiting for backend API to be ready...' &&
+          sleep 5 &&
+          echo 'Calling seed data endpoint...' &&
+          http_code=$$(curl -s -o /tmp/seed_response.json -w '%{http_code}' -X POST http://backend:8080/api/ops/seed-data -H 'Content-Type: application/json') &&
+          echo '' &&
+          cat /tmp/seed_response.json &&
+          echo '' &&
+          if [ \"$$http_code\" = \"200\" ]; then
+            echo '✓ Seed data generation completed successfully!'
+            echo 'Demo user credentials: username=demo, password=demo123'
+          elif [ \"$$http_code\" = \"400\" ]; then
+            echo 'ℹ Seed data already exists (demo user may already be created)'
+          else
+            echo '⚠ Warning: Seed data generation returned HTTP '$$http_code
+          fi
+        else
+          echo 'Seed data generation is disabled (APP_SEED_ENABLED=false)'
+        fi
+      "
+    restart: "no"
+
+volumes:
+  5619_mysql_data:
+  5619_redis_data:
+  upload-data:
+
+networks:
+  default:
+    name: finance-tracker-network
